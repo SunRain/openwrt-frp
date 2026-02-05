@@ -12,7 +12,7 @@ jobs:
   check:
     name: Check Version
     runs-on: ubuntu-latest
-    if: ${{ github.repository_owner == 'SunRain' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.repository_owner == 'SunRain' || vars.ENABLE_VERSION_SCAN == 'true' }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
