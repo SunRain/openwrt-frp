@@ -59,13 +59,17 @@ jobs:
           fi
 
       - name: Validate PAT Secret
-        if: steps.compare_version.outputs.version != '' && steps.compare_version.outputs.source_hash != '' && secrets.PAT == ''
+        if: steps.compare_version.outputs.version != '' && steps.compare_version.outputs.source_hash != ''
+        env:
+          PAT: ${{ secrets.PAT }}
         run: |
-          echo "::error title=缺少必要Secret::需要仓库 Secret `PAT` 才能推送 release 分支与 tag。请添加名为 PAT 的仓库 Secret（classic PAT：repo 权限；或 fine-grained token：Contents 读写）。"
-          exit 1
+          if [ -z "${PAT:-}" ] ; then
+            echo "::error title=缺少必要Secret::需要仓库 Secret `PAT` 才能推送 release 分支与 tag。请添加名为 PAT 的仓库 Secret（classic PAT：repo 权限；或 fine-grained token：Contents 读写）。"
+            exit 1
+          fi
 
       - name: Commit New Version
-        if: steps.compare_version.outputs.version != '' && steps.compare_version.outputs.source_hash != '' && secrets.PAT != ''
+        if: steps.compare_version.outputs.version != '' && steps.compare_version.outputs.source_hash != ''
         run: |
           version="${{ steps.compare_version.outputs.version }}"
           source_hash="${{ steps.compare_version.outputs.source_hash }}"
