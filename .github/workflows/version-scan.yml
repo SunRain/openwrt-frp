@@ -5,22 +5,25 @@ on:
     - cron: "0 1 * * *" # every day at UTC 1:00AM
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   check:
     name: Check Version
     runs-on: ubuntu-latest
-    if: ${{ github.repository_owner }} == "kuoruan"
+    if: ${{ github.repository_owner == 'SunRain' }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v6
         with:
           token: ${{ secrets.PAT }}
 
       - name: Get Latest Version
         id: get_version
-        uses: actions/github-script@v3
+        uses: actions/github-script@v8
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ github.token }}
           result-encoding: string
           script: |
             const { data } = await github.repos.getLatestRelease({
@@ -44,11 +47,15 @@ jobs:
             source_hash="$(curl -sL \
               "https://codeload.github.com/fatedier/frp/tar.gz/v$latest_version" | \
               sha256sum | cut -d' ' -f1)"
-            echo "::set-output name=version::$latest_version"
-            echo "::set-output name=source_hash::$source_hash"
+            {
+              echo "version=$latest_version"
+              echo "source_hash=$source_hash"
+            } >> "$GITHUB_OUTPUT"
           else
-            echo "::set-output name=version::"
-            echo "::set-output name=source_hash::"
+            {
+              echo "version="
+              echo "source_hash="
+            } >> "$GITHUB_OUTPUT"
           fi
 
       - name: Commit New Version
