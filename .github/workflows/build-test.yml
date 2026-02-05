@@ -51,4 +51,5 @@ jobs:
           name: frp
           path: |
             *.ipk
+            *.apk
           retention-days: 7
