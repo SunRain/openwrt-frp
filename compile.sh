@@ -49,7 +49,28 @@ fi
 cd "$dir"
 
 file "$sdk_dir/$sdk_file"
-tar -Jxf "$sdk_dir/$sdk_file" -C "$sdk_home_dir" --strip=1
+sdk_archive="$sdk_dir/$sdk_file"
+case "$sdk_archive" in
+	*.tar.zst|*.tar.zstd)
+		if tar --zstd -xf "$sdk_archive" -C "$sdk_home_dir" --strip=1 2>/dev/null ; then
+			:
+		elif command -v zstd >/dev/null 2>&1 ; then
+			zstd -dc "$sdk_archive" | tar -xf - -C "$sdk_home_dir" --strip=1
+		else
+			echo "zstd is required to extract $sdk_archive" >&2
+			exit 1
+		fi
+		;;
+	*.tar.xz|*.txz)
+		tar -Jxf "$sdk_archive" -C "$sdk_home_dir" --strip=1
+		;;
+	*.tar.gz|*.tgz)
+		tar -zxf "$sdk_archive" -C "$sdk_home_dir" --strip=1
+		;;
+	*)
+		tar -xf "$sdk_archive" -C "$sdk_home_dir" --strip=1
+		;;
+esac
 
 cd "$sdk_home_dir"
 
