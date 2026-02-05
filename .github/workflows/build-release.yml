@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  build:
     name: Build for ${{ matrix.arch }}
     runs-on: ubuntu-latest
     strategy:
@@ -147,11 +147,53 @@ jobs:
           OPENWRT_GOLANG_COMMIT: ${{ secrets.OPENWRT_GOLANG_COMMIT }}
         run: sh compile.sh
 
-      - name: Release and Upload Assets
-        uses: softprops/action-gh-release@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.PAT }}
+      - name: Normalize artifact filenames
+        run: |
+          arch="${{ matrix.arch }}"
+          for f in *.apk ; do
+            [ -e "$f" ] || continue
+            mv "$f" "${f%.apk}_${arch}.apk"
+          done
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
         with:
-          files: |
+          name: frp-${{ matrix.arch }}
+          path: |
             *.ipk
             *.apk
+          retention-days: 7
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: frp-*
+          merge-multiple: true
+          path: dist
+
+      - name: Create or Update Release
+        env:
+          GH_TOKEN: ${{ secrets.PAT || github.token }}
+        run: |
+          tag="${{ github.ref_name }}"
+
+          files=()
+          while IFS= read -r -d '' f ; do
+            files+=("$f")
+          done < <(find "dist" -type f \( -name "*.ipk" -o -name "*.apk" \) -print0)
+
+          if [ "${#files[@]}" -eq 0 ] ; then
+            echo "::error title=Release assets missing::No .ipk/.apk files found under dist/."
+            exit 1
+          fi
+
+          if gh release view "$tag" >/dev/null 2>&1 ; then
+            gh release upload "$tag" "${files[@]}" --clobber
+          else
+            gh release create "$tag" "${files[@]}" --title "$tag" --generate-notes
+          fi
