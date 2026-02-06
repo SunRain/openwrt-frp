@@ -12,28 +12,35 @@ permissions:
 
 jobs:
   build:
+    name: Build (OpenWrt ${{ matrix.openwrt_version }})
+    if: ${{ vars.OPENWRT_VERSION == '' || vars.OPENWRT_VERSION == matrix.openwrt_version }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        openwrt_version:
+          - 24.10.4
+          - 24.10.5
     env:
-      SDK_URL_PATH: https://downloads.openwrt.org/snapshots/targets/x86/64
-      SDK_NAME: -sdk-x86-64_
+      OPENWRT_VERSION: ${{ vars.OPENWRT_VERSION || matrix.openwrt_version }}
       ARCH: x86_64
       CACHE_DIR: ~/cache
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Cache
         uses: actions/cache@v4
         with:
           path: ${{ env.CACHE_DIR }}
-          key: ${{ runner.os }}:openwrt-frp:${{ env.ARCH }}:cache:${{ github.run_number }}
+          key: ${{ runner.os }}:openwrt-frp:${{ env.ARCH }}:openwrt-${{ env.OPENWRT_VERSION }}:cache:${{ github.run_number }}
           restore-keys: |
-            ${{ runner.os }}:openwrt-frp:${{ env.ARCH }}:cache:
+            ${{ runner.os }}:openwrt-frp:${{ env.ARCH }}:openwrt-${{ env.OPENWRT_VERSION }}:cache:
 
       - name: Install Dependencies
         run: |
           sudo apt-get update && \
-            sudo apt-get install -yq gettext libncurses5-dev xsltproc
+            sudo apt-get install -yq gettext libncurses5-dev rsync xsltproc
 
       - name: Prepare SDK Home
         run: |
@@ -41,13 +48,26 @@ jobs:
 
       - name: Build package
         env:
+          SDK_URL_PATH: https://downloads.openwrt.org/releases/${{ env.OPENWRT_VERSION }}/targets/x86/64
+          SDK_NAME: -sdk-${{ env.OPENWRT_VERSION }}-x86-64_
           OPENWRT_GOLANG_COMMIT: ${{ secrets.OPENWRT_GOLANG_COMMIT }}
         run: sh compile.sh
+
+      - name: Normalize artifact filenames
+        run: |
+          openwrt="${OPENWRT_VERSION}"
+          arch="${ARCH}"
+          for f in *.ipk *.apk ; do
+            [ -e "$f" ] || continue
+            ext="${f##*.}"
+            base="${f%.*}"
+            mv "$f" "${base}_${openwrt}_${arch}.${ext}"
+          done
 
       - name: Save Build Result
         uses: actions/upload-artifact@v4
         with:
-          name: frp
+          name: frp-${{ env.OPENWRT_VERSION }}-${{ env.ARCH }}
           path: |
             *.ipk
             *.apk
@@ -58,7 +78,7 @@ jobs:
     needs: build
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           fetch-depth: 10
           token: ${{ secrets.PAT }}

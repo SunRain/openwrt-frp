@@ -7,48 +7,115 @@ on:
     tags-ignore:
       - "*"
   pull_request:
+  workflow_dispatch:
+    inputs:
+      openwrt_version:
+        description: "手动指定 OpenWrt releases 版本号（如 24.10.5）。留空则按矩阵构建 24.10.4/24.10.5"
+        required: false
+        default: ""
 
 permissions:
   contents: read
 
 jobs:
   build:
+    name: Build (OpenWrt ${{ matrix.openwrt_version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        openwrt_version:
+          - 24.10.4
+          - 24.10.5
     env:
-      SDK_URL_PATH: https://downloads.openwrt.org/snapshots/targets/x86/64
-      SDK_NAME: -sdk-x86-64_
       ARCH: x86_64
       CACHE_DIR: ~/cache
     steps:
+      - name: Decide OpenWrt version
+        id: openwrt
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          requested="${{ github.event.inputs.openwrt_version || vars.OPENWRT_VERSION }}"
+          matrix_version="${{ matrix.openwrt_version }}"
+          latest_default="24.10.5"
+
+          if [ -n "${requested}" ] ; then
+            if [ "${requested}" = "24.10.4" ] || [ "${requested}" = "24.10.5" ] ; then
+              if [ "${matrix_version}" != "${requested}" ] ; then
+                echo "Skip matrix OpenWrt ${matrix_version} (requested ${requested})."
+                echo "should_build=false" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              openwrt_version="${requested}"
+            else
+              if [ "${matrix_version}" != "${latest_default}" ] ; then
+                echo "Skip matrix OpenWrt ${matrix_version} (requested ${requested})."
+                echo "should_build=false" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              openwrt_version="${requested}"
+            fi
+          else
+            openwrt_version="${matrix_version}"
+          fi
+
+          echo "Build OpenWrt releases/${openwrt_version}"
+          {
+            echo "should_build=true"
+            echo "openwrt_version=${openwrt_version}"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Checkout
-        uses: actions/checkout@v6
+        if: ${{ steps.openwrt.outputs.should_build == 'true' }}
+        uses: actions/checkout@v4
 
       - name: Setup Cache
+        if: ${{ steps.openwrt.outputs.should_build == 'true' && !env.ACT }}
         uses: actions/cache@v4
         with:
           path: ${{ env.CACHE_DIR }}
-          key: ${{ runner.os }}:openwrt-frp:${{ env.ARCH }}:cache:${{ github.run_number }}
+          key: ${{ runner.os }}:openwrt-frp:${{ env.ARCH }}:openwrt-${{ steps.openwrt.outputs.openwrt_version }}:cache:${{ github.run_number }}
           restore-keys: |
-            ${{ runner.os }}:openwrt-frp:${{ env.ARCH }}:cache:
+            ${{ runner.os }}:openwrt-frp:${{ env.ARCH }}:openwrt-${{ steps.openwrt.outputs.openwrt_version }}:cache:
 
       - name: Install Dependencies
+        if: ${{ steps.openwrt.outputs.should_build == 'true' }}
         run: |
           sudo apt-get update && \
-            sudo apt-get install -yq gettext libncurses5-dev xsltproc
+            sudo apt-get install -yq gettext libncurses5-dev rsync xsltproc
 
       - name: Prepare SDK Home
+        if: ${{ steps.openwrt.outputs.should_build == 'true' }}
         run: |
           echo "SDK_HOME=$(mktemp -d)" >> $GITHUB_ENV
 
       - name: Build package
+        if: ${{ steps.openwrt.outputs.should_build == 'true' }}
         env:
+          SDK_URL_PATH: https://downloads.openwrt.org/releases/${{ steps.openwrt.outputs.openwrt_version }}/targets/x86/64
+          SDK_NAME: -sdk-${{ steps.openwrt.outputs.openwrt_version }}-x86-64_
           OPENWRT_GOLANG_COMMIT: ${{ secrets.OPENWRT_GOLANG_COMMIT }}
         run: sh compile.sh
 
+      - name: Normalize artifact filenames
+        if: ${{ steps.openwrt.outputs.should_build == 'true' }}
+        run: |
+          openwrt="${{ steps.openwrt.outputs.openwrt_version }}"
+          arch="${ARCH}"
+          for f in *.ipk *.apk ; do
+            [ -e "$f" ] || continue
+            ext="${f##*.}"
+            base="${f%.*}"
+            mv "$f" "${base}_${openwrt}_${arch}.${ext}"
+          done
+
       - name: Save Build Result
+        if: ${{ steps.openwrt.outputs.should_build == 'true' && !env.ACT }}
         uses: actions/upload-artifact@v4
         with:
-          name: frp
+          name: frp-${{ steps.openwrt.outputs.openwrt_version }}-${{ env.ARCH }}
           path: |
             *.ipk
             *.apk

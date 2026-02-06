@@ -104,6 +104,14 @@ if [ -n "$golang_commit" ] ; then
 		tar -xz -C "feeds/packages/lang" --strip=2 "packages-$golang_commit/lang/golang"
 fi
 
+golang_makefile="feeds/packages/lang/golang/Makefile"
+if [ -f "$golang_makefile" ] ; then
+	golang_pkg_version="$(sed -n 's/^PKG_VERSION:=//p' "$golang_makefile" | head -n 1)"
+	echo "OpenWrt golang PKG_VERSION=${golang_pkg_version}"
+else
+	echo "OpenWrt golang Makefile not found: $golang_makefile"
+fi
+
 ln -sf "$dir" "package/$package_name"
 
 ./scripts/feeds install -a
